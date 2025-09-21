@@ -1,0 +1,1135 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Ransomware Detection Dashboard</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/3.9.1/chart.min.js"></script>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: linear-gradient(135deg, #1e3c72 0%, #2a5298 100%);
+            color: #fff;
+            min-height: 100vh;
+            overflow-x: hidden;
+        }
+
+        .dashboard-header {
+            background: rgba(0, 0, 0, 0.2);
+            backdrop-filter: blur(10px);
+            padding: 1rem 2rem;
+            border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            position: sticky;
+            top: 0;
+            z-index: 100;
+        }
+
+        .logo {
+            display: flex;
+            align-items: center;
+            gap: 1rem;
+        }
+
+        .logo-icon {
+            width: 40px;
+            height: 40px;
+            background: linear-gradient(45deg, #ff6b6b, #ee5a24);
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-weight: bold;
+            font-size: 1.2rem;
+            box-shadow: 0 4px 15px rgba(238, 90, 36, 0.3);
+        }
+
+        .connection-status {
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+            padding: 0.5rem 1rem;
+            border-radius: 20px;
+            background: rgba(255, 255, 255, 0.1);
+        }
+
+        .status-indicator {
+            width: 12px;
+            height: 12px;
+            border-radius: 50%;
+            background: #ff6b6b;
+            animation: pulse 2s infinite;
+        }
+
+        .status-indicator.connected {
+            background: #00d4aa;
+        }
+
+        @keyframes pulse {
+            0% { opacity: 1; }
+            50% { opacity: 0.5; }
+            100% { opacity: 1; }
+        }
+
+        .main-container {
+            padding: 2rem;
+            max-width: 1400px;
+            margin: 0 auto;
+        }
+
+        .stats-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+            gap: 1.5rem;
+            margin-bottom: 2rem;
+        }
+
+        .stat-card {
+            background: rgba(255, 255, 255, 0.1);
+            backdrop-filter: blur(10px);
+            border-radius: 15px;
+            padding: 1.5rem;
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            transition: transform 0.3s ease, box-shadow 0.3s ease;
+        }
+
+        .stat-card:hover {
+            transform: translateY(-5px);
+            box-shadow: 0 10px 30px rgba(0, 0, 0, 0.3);
+        }
+
+        .stat-card.alert {
+            border-color: #ff6b6b;
+            background: rgba(255, 107, 107, 0.1);
+        }
+
+        .stat-value {
+            font-size: 2.5rem;
+            font-weight: bold;
+            margin-bottom: 0.5rem;
+            background: linear-gradient(45deg, #fff, #a8edea);
+            background-clip: text;
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+        }
+
+        .stat-label {
+            font-size: 0.9rem;
+            opacity: 0.8;
+        }
+
+        .dashboard-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 2rem;
+            margin-bottom: 2rem;
+        }
+
+        .chart-container {
+            background: rgba(255, 255, 255, 0.1);
+            backdrop-filter: blur(10px);
+            border-radius: 15px;
+            padding: 1.5rem;
+            border: 1px solid rgba(255, 255, 255, 0.1);
+        }
+
+        .chart-title {
+            font-size: 1.2rem;
+            margin-bottom: 1rem;
+            text-align: center;
+            font-weight: 600;
+        }
+
+        .alerts-container {
+            grid-column: 1 / -1;
+            background: rgba(255, 255, 255, 0.1);
+            backdrop-filter: blur(10px);
+            border-radius: 15px;
+            padding: 1.5rem;
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            max-height: 400px;
+            overflow-y: auto;
+        }
+
+        .alert-item {
+            background: rgba(255, 107, 107, 0.2);
+            border-left: 4px solid #ff6b6b;
+            padding: 1rem;
+            margin-bottom: 1rem;
+            border-radius: 8px;
+            animation: slideIn 0.5s ease-out;
+            cursor: pointer;
+            transition: all 0.3s ease;
+        }
+
+        .alert-item:hover {
+            background: rgba(255, 107, 107, 0.3);
+            transform: translateX(5px);
+        }
+
+        .alert-item.critical {
+            border-left-color: #ff3838;
+            background: rgba(255, 56, 56, 0.2);
+        }
+
+        .alert-item.high {
+            border-left-color: #ff6b6b;
+        }
+
+        .alert-item.medium {
+            border-left-color: #ffa726;
+            background: rgba(255, 167, 38, 0.2);
+        }
+
+        .alert-item.low {
+            border-left-color: #74b9ff;
+            background: rgba(116, 185, 255, 0.2);
+        }
+
+        .alert-item.minimal {
+            border-left-color: #00d4aa;
+            background: rgba(0, 212, 170, 0.2);
+        }
+
+        @keyframes slideIn {
+            from {
+                transform: translateX(-100%);
+                opacity: 0;
+            }
+            to {
+                transform: translateX(0);
+                opacity: 1;
+            }
+        }
+
+        .alert-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 0.5rem;
+        }
+
+        .alert-title {
+            font-weight: bold;
+            font-size: 1.1rem;
+        }
+
+        .alert-time {
+            font-size: 0.8rem;
+            opacity: 0.7;
+        }
+
+        .alert-details {
+            font-size: 0.9rem;
+            line-height: 1.4;
+        }
+
+        .controls-panel {
+            background: rgba(255, 255, 255, 0.1);
+            backdrop-filter: blur(10px);
+            border-radius: 15px;
+            padding: 1.5rem;
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            margin-bottom: 2rem;
+        }
+
+        .controls-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 1rem;
+            align-items: end;
+        }
+
+        .control-group {
+            display: flex;
+            flex-direction: column;
+            gap: 0.5rem;
+        }
+
+        .control-label {
+            font-size: 0.9rem;
+            font-weight: 500;
+        }
+
+        .control-input {
+            padding: 0.5rem;
+            border: 1px solid rgba(255, 255, 255, 0.2);
+            border-radius: 8px;
+            background: rgba(255, 255, 255, 0.1);
+            color: #fff;
+            font-size: 0.9rem;
+        }
+
+        .control-input:focus {
+            outline: none;
+            border-color: #00d4aa;
+            box-shadow: 0 0 10px rgba(0, 212, 170, 0.3);
+        }
+
+        .btn {
+            padding: 0.75rem 1.5rem;
+            border: none;
+            border-radius: 8px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            font-size: 0.85rem;
+        }
+
+        .btn-primary {
+            background: linear-gradient(45deg, #00d4aa, #00a085);
+            color: #fff;
+        }
+
+        .btn-primary:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 5px 15px rgba(0, 212, 170, 0.4);
+        }
+
+        .btn-danger {
+            background: linear-gradient(45deg, #ff6b6b, #ee5a24);
+            color: #fff;
+        }
+
+        .btn-danger:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 5px 15px rgba(255, 107, 107, 0.4);
+        }
+
+        .btn-warning {
+            background: linear-gradient(45deg, #ffa726, #ff8f00);
+            color: #fff;
+        }
+
+        .btn-warning:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 5px 15px rgba(255, 167, 38, 0.4);
+        }
+
+        .real-time-feed {
+            background: rgba(0, 0, 0, 0.3);
+            border-radius: 10px;
+            padding: 1rem;
+            height: 300px;
+            overflow-y: auto;
+            font-family: 'Courier New', monospace;
+            font-size: 0.8rem;
+            line-height: 1.4;
+        }
+
+        .feed-item {
+            margin-bottom: 0.5rem;
+            padding: 0.25rem 0;
+            border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+        }
+
+        .feed-item.prediction {
+            color: #00d4aa;
+        }
+
+        .feed-item.alert {
+            color: #ff6b6b;
+            font-weight: bold;
+        }
+
+        .feed-item.info {
+            color: #74b9ff;
+        }
+
+        .loading-spinner {
+            display: inline-block;
+            width: 20px;
+            height: 20px;
+            border: 2px solid rgba(255, 255, 255, 0.3);
+            border-radius: 50%;
+            border-top-color: #fff;
+            animation: spin 1s linear infinite;
+            margin-left: 0.5rem;
+        }
+
+        @keyframes spin {
+            to { transform: rotate(360deg); }
+        }
+
+        .risk-meter {
+            position: relative;
+            width: 150px;
+            height: 75px;
+            margin: 0 auto;
+        }
+
+        .meter-arc {
+            stroke-width: 8;
+            fill: none;
+            stroke-dasharray: 0 173;
+            transition: stroke-dasharray 0.5s ease;
+        }
+
+        .meter-background {
+            stroke: rgba(255, 255, 255, 0.2);
+        }
+
+        .meter-fill {
+            stroke: #00d4aa;
+            stroke-linecap: round;
+        }
+
+        .meter-fill.critical {
+            stroke: #ff3838;
+        }
+
+        .meter-fill.high {
+            stroke: #ff6b6b;
+        }
+
+        .meter-fill.medium {
+            stroke: #ffa726;
+        }
+
+        .meter-text {
+            text-anchor: middle;
+            font-weight: bold;
+            font-size: 0.9rem;
+        }
+
+        @media (max-width: 768px) {
+            .dashboard-grid {
+                grid-template-columns: 1fr;
+            }
+            
+            .main-container {
+                padding: 1rem;
+            }
+            
+            .stats-grid {
+                grid-template-columns: 1fr;
+            }
+        }
+
+        .modal {
+            display: none;
+            position: fixed;
+            z-index: 1000;
+            left: 0;
+            top: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0, 0, 0, 0.8);
+            backdrop-filter: blur(5px);
+        }
+
+        .modal-content {
+            background: linear-gradient(135deg, #1e3c72 0%, #2a5298 100%);
+            margin: 5% auto;
+            padding: 2rem;
+            border-radius: 15px;
+            width: 90%;
+            max-width: 600px;
+            border: 1px solid rgba(255, 255, 255, 0.2);
+            position: relative;
+        }
+
+        .close {
+            color: #fff;
+            float: right;
+            font-size: 28px;
+            font-weight: bold;
+            cursor: pointer;
+            opacity: 0.7;
+            position: absolute;
+            right: 1rem;
+            top: 1rem;
+        }
+
+        .close:hover {
+            opacity: 1;
+        }
+
+        .range-input {
+            width: 100%;
+            margin: 0.5rem 0;
+        }
+
+        .checkbox-container {
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+        }
+
+        .checkbox-container input[type="checkbox"] {
+            width: 18px;
+            height: 18px;
+        }
+    </style>
+</head>
+<body>
+    <div class="dashboard-header">
+        <div class="logo">
+            <div class="logo-icon">🛡️</div>
+            <div>
+                <h1>Ransomware Detection System</h1>
+                <p style="font-size: 0.8rem; opacity: 0.8;">PSO-Optimized Hybrid AI Model</p>
+            </div>
+        </div>
+        <div class="connection-status">
+            <div class="status-indicator" id="connectionStatus"></div>
+            <span id="statusText">Connecting...</span>
+        </div>
+    </div>
+
+    <div class="main-container">
+        <!-- Statistics Cards -->
+        <div class="stats-grid">
+            <div class="stat-card">
+                <div class="stat-value" id="totalPredictions">0</div>
+                <div class="stat-label">Total Predictions</div>
+            </div>
+            <div class="stat-card alert">
+                <div class="stat-value" id="totalAlerts">0</div>
+                <div class="stat-label">Alerts Triggered</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-value" id="systemUptime">0s</div>
+                <div class="stat-label">System Uptime</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-value" id="activeProcesses">0</div>
+                <div class="stat-label">Active Processes</div>
+            </div>
+        </div>
+
+        <!-- Controls Panel -->
+        <div class="controls-panel">
+            <h3 style="margin-bottom: 1rem;">System Controls</h3>
+            <div class="controls-grid">
+                <div class="control-group">
+                    <label class="control-label">Alert Threshold</label>
+                    <input type="range" class="control-input range-input" id="alertThreshold" min="0" max="1" step="0.01" value="0.7">
+                    <span id="alertThresholdValue" style="font-size: 0.8rem; opacity: 0.8;">0.70</span>
+                </div>
+                <div class="control-group">
+                    <label class="control-label">Auto-scroll Alerts</label>
+                    <div class="checkbox-container">
+                        <input type="checkbox" id="autoScroll" checked>
+                        <span>Enable</span>
+                    </div>
+                </div>
+                <div class="control-group">
+                    <button class="btn btn-primary" onclick="clearAlerts()">Clear Alerts</button>
+                </div>
+                <div class="control-group">
+                    <button class="btn btn-danger" onclick="testAlert()">Test Alert</button>
+                </div>
+                <div class="control-group">
+                    <button class="btn btn-warning" onclick="generateTestTraces()">Generate Test Data</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- Dashboard Grid -->
+        <div class="dashboard-grid">
+            <!-- Real-time Activity Chart -->
+            <div class="chart-container">
+                <h3 class="chart-title">Detection Activity</h3>
+                <canvas id="activityChart"></canvas>
+            </div>
+
+            <!-- Risk Distribution Chart -->
+            <div class="chart-container">
+                <h3 class="chart-title">Risk Level Distribution</h3>
+                <canvas id="riskChart"></canvas>
+            </div>
+
+            <!-- System Performance -->
+            <div class="chart-container">
+                <h3 class="chart-title">System Performance</h3>
+                <div style="display: flex; justify-content: space-around; align-items: center; height: 200px;">
+                    <div style="text-align: center;">
+                        <div class="risk-meter">
+                            <svg width="150" height="75">
+                                <path class="meter-arc meter-background" d="M 20 55 A 55 55 0 0 1 130 55"></path>
+                                <path class="meter-arc meter-fill" id="cpuMeter" d="M 20 55 A 55 55 0 0 1 130 55"></path>
+                                <text class="meter-text" x="75" y="65" id="cpuText">CPU: 0%</text>
+                            </svg>
+                        </div>
+                    </div>
+                    <div style="text-align: center;">
+                        <div class="risk-meter">
+                            <svg width="150" height="75">
+                                <path class="meter-arc meter-background" d="M 20 55 A 55 55 0 0 1 130 55"></path>
+                                <path class="meter-arc meter-fill" id="memoryMeter" d="M 20 55 A 55 55 0 0 1 130 55"></path>
+                                <text class="meter-text" x="75" y="65" id="memoryText">RAM: 0%</text>
+                            </svg>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Real-time Feed -->
+            <div class="chart-container">
+                <h3 class="chart-title">Real-time Activity Feed</h3>
+                <div class="real-time-feed" id="activityFeed">
+                    <div class="feed-item info">System initializing...</div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Alerts Container -->
+        <div class="alerts-container">
+            <h3 style="margin-bottom: 1rem; display: flex; align-items: center;">
+                🚨 Security Alerts
+                <span class="loading-spinner" id="alertsLoading" style="display: none;"></span>
+            </h3>
+            <div id="alertsList">
+                <div style="text-align: center; opacity: 0.6; padding: 2rem;">
+                    No alerts detected. System is monitoring...
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Alert Modal -->
+    <div id="alertModal" class="modal">
+        <div class="modal-content">
+            <span class="close" onclick="closeModal()">&times;</span>
+            <h2 id="modalTitle">Critical Alert</h2>
+            <div id="modalContent"></div>
+            <div style="margin-top: 1rem; text-align: right;">
+                <button class="btn btn-primary" onclick="acknowledgeAlert()">Acknowledge</button>
+                <button class="btn btn-danger" onclick="blockProcess()">Block Process</button>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        class RansomwareDashboard {
+            constructor() {
+                this.ws = null;
+                this.isConnected = false;
+                this.alerts = [];
+                this.activityData = [];
+                this.riskData = { MINIMAL: 0, LOW: 0, MEDIUM: 0, HIGH: 0, CRITICAL: 0 };
+                this.currentAlert = null;
+                this.activityChart = null;
+                this.riskChart = null;
+                
+                this.initCharts();
+                this.initWebSocket();
+                this.initEventListeners();
+                
+                // Update display every second
+                setInterval(() => this.updateDisplay(), 1000);
+            }
+
+            initWebSocket() {
+                const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+                const host = window.location.hostname;
+                const port = window.location.port || (window.location.protocol === 'https:' ? '443' : '8000');
+                const wsUrl = `${protocol}//${host}:${port}/stream`;
+                
+                try {
+                    this.addToFeed(`Connecting to ${wsUrl}`, 'info');
+                    this.ws = new WebSocket(wsUrl);
+                    
+                    this.ws.onopen = () => {
+                        this.isConnected = true;
+                        this.updateConnectionStatus();
+                        this.addToFeed('Connected to detection engine', 'info');
+                        
+                        // Request initial status
+                        this.ws.send(JSON.stringify({ type: 'get_status' }));
+                    };
+                    
+                    this.ws.onmessage = (event) => {
+                        const message = JSON.parse(event.data);
+                        this.handleWebSocketMessage(message);
+                    };
+                    
+                    this.ws.onclose = () => {
+                        this.isConnected = false;
+                        this.updateConnectionStatus();
+                        this.addToFeed('Disconnected from detection engine', 'alert');
+                        
+                        // Attempt to reconnect after 5 seconds
+                        setTimeout(() => this.initWebSocket(), 5000);
+                    };
+                    
+                    this.ws.onerror = (error) => {
+                        console.error('WebSocket error:', error);
+                        this.addToFeed('WebSocket connection error', 'alert');
+                    };
+                    
+                } catch (error) {
+                    console.error('Failed to connect to WebSocket:', error);
+                    this.addToFeed('Failed to connect to backend', 'alert');
+                    setTimeout(() => this.initWebSocket(), 5000);
+                }
+            }
+
+            handleWebSocketMessage(message) {
+                console.log('Received message:', message);
+                
+                switch (message.type) {
+                    case 'prediction':
+                        this.handlePrediction(message.data);
+                        break;
+                    case 'status':
+                        this.handleStatusUpdate(message.data);
+                        break;
+                    case 'alert':
+                        this.handleAlert(message.data);
+                        break;
+                    default:
+                        console.log('Unknown message type:', message.type);
+                }
+            }
+
+            handlePrediction(data) {
+                this.addToFeed(`Prediction: ${data.process_name} (${data.risk_level}) - Score: ${data.hybrid_prediction.toFixed(3)}`, 'prediction');
+                
+                // Update risk distribution
+                this.riskData[data.risk_level] = (this.riskData[data.risk_level] || 0) + 1;
+                
+                // Add to activity data
+                this.activityData.push({
+                    time: new Date(data.timestamp),
+                    score: data.hybrid_prediction,
+                    risk: data.risk_level
+                });
+                
+                // Keep only last 50 data points
+                if (this.activityData.length > 50) {
+                    this.activityData.shift();
+                }
+                
+                // If it's an alert, add to alerts list
+                if (data.alert_triggered) {
+                    this.addAlert(data);
+                }
+                
+                this.updateCharts();
+            }
+
+            handleStatusUpdate(status) {
+                document.getElementById('totalPredictions').textContent = status.total_predictions || 0;
+                document.getElementById('totalAlerts').textContent = status.alerts_triggered || 0;
+                document.getElementById('activeProcesses').textContent = status.current_load?.active_processes || 0;
+                
+                // Update uptime
+                const uptime = status.uptime || 0;
+                document.getElementById('systemUptime').textContent = this.formatUptime(uptime);
+                
+                // Update system performance meters
+                const cpuPercent = status.current_load?.cpu_percent || 0;
+                const memoryPercent = status.current_load?.memory_percent || 0;
+                
+                this.updateMeter('cpuMeter', 'cpuText', cpuPercent, `CPU: ${cpuPercent.toFixed(1)}%`);
+                this.updateMeter('memoryMeter', 'memoryText', memoryPercent, `RAM: ${memoryPercent.toFixed(1)}%`);
+            }
+
+            handleAlert(data) {
+                // Same as handlePrediction for alerts
+                this.handlePrediction(data);
+            }
+
+            addAlert(alertData) {
+                const alert = {
+                    id: Date.now() + Math.random(),
+                    ...alertData,
+                    acknowledged: false
+                };
+                
+                this.alerts.unshift(alert);
+                
+                // Keep only last 100 alerts
+                if (this.alerts.length > 100) {
+                    this.alerts.pop();
+                }
+                
+                this.updateAlertsDisplay();
+                this.addToFeed(`🚨 ALERT: ${alert.process_name} detected as ${alert.risk_level} risk`, 'alert');
+                
+                // Show critical alerts in modal
+                if (alert.risk_level === 'CRITICAL') {
+                    this.showAlertModal(alert);
+                }
+            }
+
+            showAlertModal(alert) {
+                this.currentAlert = alert;
+                document.getElementById('modalTitle').textContent = `${alert.risk_level} Ransomware Alert`;
+                document.getElementById('modalContent').innerHTML = `
+                    <div style="line-height: 1.6;">
+                        <strong>Process:</strong> ${alert.process_name} (PID: ${alert.process_id})<br>
+                        <strong>File Path:</strong> ${alert.file_path}<br>
+                        <strong>Risk Level:</strong> <span style="color: #ff3838;">${alert.risk_level}</span><br>
+                        <strong>Confidence:</strong> ${(alert.confidence * 100).toFixed(1)}%<br>
+                        <strong>Primary Score:</strong> ${alert.primary_prediction.toFixed(4)}<br>
+                        <strong>Hybrid Score:</strong> ${alert.hybrid_prediction.toFixed(4)}<br>
+                        <strong>Detection Time:</strong> ${new Date(alert.timestamp).toLocaleString()}
+                    </div>
+                `;
+                document.getElementById('alertModal').style.display = 'block';
+            }
+
+            updateAlertsDisplay() {
+                const alertsList = document.getElementById('alertsList');
+                
+                if (this.alerts.length === 0) {
+                    alertsList.innerHTML = `
+                        <div style="text-align: center; opacity: 0.6; padding: 2rem;">
+                            No alerts detected. System is monitoring...
+                        </div>
+                    `;
+                    return;
+                }
+                
+                const alertsHtml = this.alerts.map(alert => `
+                    <div class="alert-item ${alert.risk_level.toLowerCase()}" onclick="showAlertDetails('${alert.id}')">
+                        <div class="alert-header">
+                            <div class="alert-title">
+                                🚨 ${alert.process_name} - ${alert.risk_level} Risk
+                            </div>
+                            <div class="alert-time">
+                                ${new Date(alert.timestamp).toLocaleTimeString()}
+                            </div>
+                        </div>
+                        <div class="alert-details">
+                            <div>Process ID: ${alert.process_id}</div>
+                            <div>File: ${alert.file_path}</div>
+                            <div>Confidence: ${(alert.confidence * 100).toFixed(1)}% | Score: ${alert.hybrid_prediction.toFixed(3)}</div>
+                            ${alert.acknowledged ? '<div style="color: #00d4aa;">✓ Acknowledged</div>' : ''}
+                        </div>
+                    </div>
+                `).join('');
+                
+                alertsList.innerHTML = alertsHtml;
+                
+                // Auto-scroll if enabled
+                if (document.getElementById('autoScroll').checked) {
+                    alertsList.scrollTop = 0;
+                }
+            }
+
+            initCharts() {
+                // Activity Chart
+                const activityCtx = document.getElementById('activityChart').getContext('2d');
+                this.activityChart = new Chart(activityCtx, {
+                    type: 'line',
+                    data: {
+                        labels: [],
+                        datasets: [{
+                            label: 'Threat Score',
+                            data: [],
+                            borderColor: '#ff6b6b',
+                            backgroundColor: 'rgba(255, 107, 107, 0.1)',
+                            borderWidth: 2,
+                            fill: true,
+                            tension: 0.4
+                        }]
+                    },
+                    options: {
+                        responsive: true,
+                        plugins: {
+                            legend: {
+                                labels: { color: '#fff' }
+                            }
+                        },
+                        scales: {
+                            x: {
+                                ticks: { color: '#fff' },
+                                grid: { color: 'rgba(255, 255, 255, 0.1)' }
+                            },
+                            y: {
+                                beginAtZero: true,
+                                max: 1,
+                                ticks: { color: '#fff' },
+                                grid: { color: 'rgba(255, 255, 255, 0.1)' }
+                            }
+                        },
+                        elements: {
+                            point: { radius: 0 }
+                        }
+                    }
+                });
+
+                // Risk Chart
+                const riskCtx = document.getElementById('riskChart').getContext('2d');
+                this.riskChart = new Chart(riskCtx, {
+                    type: 'doughnut',
+                    data: {
+                        labels: ['Minimal', 'Low', 'Medium', 'High', 'Critical'],
+                        datasets: [{
+                            data: [1, 0, 0, 0, 0],
+                            backgroundColor: [
+                                '#00d4aa',
+                                '#74b9ff',
+                                '#ffa726',
+                                '#ff6b6b',
+                                '#ff3838'
+                            ]
+                        }]
+                    },
+                    options: {
+                        responsive: true,
+                        plugins: {
+                            legend: {
+                                labels: { color: '#fff' }
+                            }
+                        }
+                    }
+                });
+            }
+
+            updateCharts() {
+                // Update activity chart
+                if (this.activityData.length > 0) {
+                    const labels = this.activityData.map(d => d.time.toLocaleTimeString());
+                    const data = this.activityData.map(d => d.score);
+                    
+                    this.activityChart.data.labels = labels;
+                    this.activityChart.data.datasets[0].data = data;
+                    this.activityChart.update('none');
+                }
+
+                // Update risk chart
+                const riskValues = [
+                    this.riskData.MINIMAL || 0,
+                    this.riskData.LOW || 0,
+                    this.riskData.MEDIUM || 0,
+                    this.riskData.HIGH || 0,
+                    this.riskData.CRITICAL || 0
+                ];
+                
+                // Ensure at least one value for display
+                if (riskValues.every(v => v === 0)) {
+                    riskValues[0] = 1;
+                }
+                
+                this.riskChart.data.datasets[0].data = riskValues;
+                this.riskChart.update('none');
+            }
+
+            updateMeter(meterId, textId, percentage, text) {
+                const meter = document.getElementById(meterId);
+                const textElement = document.getElementById(textId);
+                
+                // Calculate arc length (approximately 110 degrees)
+                const maxLength = 173; // Approximate arc length
+                const length = (percentage / 100) * maxLength;
+                
+                meter.style.strokeDasharray = `${length} ${maxLength}`;
+                
+                // Update color based on percentage
+                if (percentage > 80) {
+                    meter.className = 'meter-arc meter-fill critical';
+                } else if (percentage > 60) {
+                    meter.className = 'meter-arc meter-fill high';
+                } else if (percentage > 40) {
+                    meter.className = 'meter-arc meter-fill medium';
+                } else {
+                    meter.className = 'meter-arc meter-fill';
+                }
+                
+                textElement.textContent = text;
+            }
+
+            formatUptime(seconds) {
+                const hours = Math.floor(seconds / 3600);
+                const minutes = Math.floor((seconds % 3600) / 60);
+                const secs = Math.floor(seconds % 60);
+                
+                if (hours > 0) {
+                    return `${hours}h ${minutes}m`;
+                } else if (minutes > 0) {
+                    return `${minutes}m ${secs}s`;
+                } else {
+                    return `${secs}s`;
+                }
+            }
+
+            addToFeed(message, type = 'info') {
+                const feed = document.getElementById('activityFeed');
+                const timestamp = new Date().toLocaleTimeString();
+                const feedItem = document.createElement('div');
+                feedItem.className = `feed-item ${type}`;
+                feedItem.textContent = `[${timestamp}] ${message}`;
+                
+                feed.insertBefore(feedItem, feed.firstChild);
+                
+                // Keep only last 50 items
+                while (feed.children.length > 50) {
+                    feed.removeChild(feed.lastChild);
+                }
+            }
+
+            updateConnectionStatus() {
+                const indicator = document.getElementById('connectionStatus');
+                const text = document.getElementById('statusText');
+                
+                if (this.isConnected) {
+                    indicator.classList.add('connected');
+                    text.textContent = 'Connected';
+                } else {
+                    indicator.classList.remove('connected');
+                    text.textContent = 'Disconnected';
+                }
+            }
+
+            updateDisplay() {
+                // This method is called every second to update any time-based displays
+                if (this.isConnected && this.ws && this.ws.readyState === WebSocket.OPEN) {
+                    // Request status update every 10 seconds
+                    if (Date.now() % 10000 < 1000) {
+                        this.ws.send(JSON.stringify({ type: 'get_status' }));
+                    }
+                }
+            }
+
+            initEventListeners() {
+                // Alert threshold slider
+                const alertThreshold = document.getElementById('alertThreshold');
+                const alertThresholdValue = document.getElementById('alertThresholdValue');
+                
+                alertThreshold.addEventListener('input', (e) => {
+                    const value = parseFloat(e.target.value);
+                    alertThresholdValue.textContent = value.toFixed(2);
+                    
+                    // Send threshold update to backend
+                    if (this.isConnected && this.ws) {
+                        fetch('/configure', {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({ alert_threshold: value })
+                        }).catch(console.error);
+                    }
+                });
+
+                // Keyboard shortcuts
+                document.addEventListener('keydown', (e) => {
+                    if (e.ctrlKey && e.key === 'r') {
+                        e.preventDefault();
+                        location.reload();
+                    }
+                    if (e.key === 'Escape') {
+                        this.closeModal();
+                    }
+                });
+
+                // Modal click outside to close
+                window.addEventListener('click', (e) => {
+                    const modal = document.getElementById('alertModal');
+                    if (e.target === modal) {
+                        this.closeModal();
+                    }
+                });
+            }
+
+            closeModal() {
+                document.getElementById('alertModal').style.display = 'none';
+                this.currentAlert = null;
+            }
+
+            acknowledgeAlert() {
+                if (this.currentAlert) {
+                    const alertIndex = this.alerts.findIndex(a => a.id === this.currentAlert.id);
+                    if (alertIndex !== -1) {
+                        this.alerts[alertIndex].acknowledged = true;
+                        this.updateAlertsDisplay();
+                    }
+                    this.closeModal();
+                }
+            }
+
+            blockProcess() {
+                if (this.currentAlert) {
+                    // In a real implementation, this would send a command to block the process
+                    alert(`Process ${this.currentAlert.process_name} (PID: ${this.currentAlert.process_id}) would be blocked.`);
+                    this.acknowledgeAlert();
+                }
+            }
+        }
+
+        // Global functions for HTML onclick handlers
+        function clearAlerts() {
+            dashboard.alerts = [];
+            dashboard.updateAlertsDisplay();
+            dashboard.addToFeed('All alerts cleared', 'info');
+        }
+
+        async function testAlert() {
+            try {
+                const response = await fetch('/test/alert', { method: 'POST' });
+                if (response.ok) {
+                    dashboard.addToFeed('Test alert generated', 'info');
+                } else {
+                    dashboard.addToFeed('Failed to generate test alert', 'alert');
+                }
+            } catch (error) {
+                console.error('Error generating test alert:', error);
+                dashboard.addToFeed('Error generating test alert', 'alert');
+            }
+        }
+
+        async function generateTestTraces() {
+            try {
+                const response = await fetch('/test/traces', { 
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ count: 20 })
+                });
+                if (response.ok) {
+                    dashboard.addToFeed('Test traces generated', 'info');
+                } else {
+                    dashboard.addToFeed('Failed to generate test traces', 'alert');
+                }
+            } catch (error) {
+                console.error('Error generating test traces:', error);
+                dashboard.addToFeed('Error generating test traces', 'alert');
+            }
+        }
+
+        function showAlertDetails(alertId) {
+            const alert = dashboard.alerts.find(a => a.id == alertId);
+            if (alert) {
+                dashboard.showAlertModal(alert);
+            }
+        }
+
+        function closeModal() {
+            dashboard.closeModal();
+        }
+
+        function acknowledgeAlert() {
+            dashboard.acknowledgeAlert();
+        }
+
+        function blockProcess() {
+            dashboard.blockProcess();
+        }
+
+        // Initialize dashboard
+        let dashboard;
+        document.addEventListener('DOMContentLoaded', () => {
+            dashboard = new RansomwareDashboard();
+        });
+
+        // Handle window close
+        window.addEventListener('beforeunload', () => {
+            if (dashboard && dashboard.ws) {
+                dashboard.ws.close();
+            }
+        });
+    </script>
+</body>
+</html>
