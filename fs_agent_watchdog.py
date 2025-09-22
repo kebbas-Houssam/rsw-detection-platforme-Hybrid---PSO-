@@ -47,7 +47,7 @@ class AgentHandler(FileSystemEventHandler):
         self.send_trace("delete", event.src_path)
 
 if __name__ == "__main__":
-    path = r"C:\Users\KEBBAS HOUSSAM"  
+    path = r"C:"  
     observer = Observer()
     handler = AgentHandler()
     observer.schedule(handler, path=path, recursive=True)
