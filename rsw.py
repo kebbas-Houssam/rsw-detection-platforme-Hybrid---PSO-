@@ -1,193 +1,98 @@
-import os
-import time
-import argparse
-import random
-import threading
-from pathlib import Path
-import shutil
-import sys
 
-# --- Helpers ---
-def human(n):
-    for unit in ['B','KB','MB','GB','TB']:
-        if abs(n) < 1024.0:
-            return f"{n:3.1f}{unit}"
-        n /= 1024.0
-    return f"{n:.1f}PB"
 
-def free_space_bytes(path):
-    # يعيد البايتات الحرة على نفس القرص
-    usage = shutil.disk_usage(path)
-    return usage.free
 
-# --- File ops ---
-def make_file(path: Path, size_kb:int):
-    # كتابة ملف جديد بحجم size_kb KB
-    # نفتح في وضع wb ونكتب كتلة عشوائية مقسمة لتقليل استخدام الذاكرة
-    block = os.urandom(4096)
-    to_write = size_kb * 1024
-    written = 0
-    with open(path, "wb") as f:
-        while written < to_write:
-            f.write(block)
-            written += len(block)
+import time, requests, random, argparse, math
 
-def append_to_file(path: Path, size_kb:int):
-    block = os.urandom(4096)
-    to_write = size_kb * 1024
-    written = 0
-    with open(path, "ab") as f:
-        while written < to_write:
-            f.write(block)
-            written += len(block)
+def generate_offset_pattern(mode, file_idx, step_idx, params):
+    # mode: 'small_wss' | 'repeating_blocks' | 'sequential'
+    base = params.get('base_offset', 0)
+    block = params.get('block_size', 4096)
+    wss = params.get('wss', 8)
+    if mode == 'small_wss':
+        # اختَر من نطاق صغير من offsets (لتقليل WSS & entropy)
+        return base + (step_idx % wss) * block
+    if mode == 'repeating_blocks':
+        # تكرار لنفس البلوكات عبر ملفات
+        return base + ((file_idx % wss) * block) + ((step_idx % 4) * block)
+    return base + (file_idx * block) + ((step_idx % 16) * block)
 
-# --- Worker thread ---
-def worker_thread(thread_id, params, stop_event):
-    tgt = params['target']
-    files = params['files']
-    writes_per_file = params['writes_per_file']
-    size_kb = params['size_kb']
-    interval = params['interval']
-    mode = params['mode']  # "disk" or "api"
-    api_func = params.get('api_func', None)
-    safety_min_free = params['safety_min_free']
-
-    # create initial files if needed
-    for i in range(thread_id, files, params['concurrency']):
-        if stop_event.is_set(): return
-        p = tgt / f"sim_thr{thread_id}_file_{i}.bin"
-        try:
-            make_file(p, size_kb)
-        except Exception as e:
-            print(f"[T{thread_id}] create error {p}: {e}")
-            stop_event.set()
-            return
-
-    # aggressive writes loop
-    ops = 0
-    while not stop_event.is_set():
-        # check free space
-        free = free_space_bytes(str(tgt))
-        if free < safety_min_free:
-            print(f"[T{thread_id}] Low disk free {human(free)} < safety_min_free. Stopping thread.")
-            stop_event.set()
-            return
-
-        file_idx = random.randrange(0, files)
-        p = tgt / f"sim_thr{thread_id}_file_{file_idx}.bin"
-        try:
-            # 80% append, 10% rewrite, 10% rename pattern
-            r = random.random()
-            if r < 0.8:
-                append_to_file(p, size_kb)
-                action = "append"
-            elif r < 0.9:
-                # rewrite by replace
-                tmp = p.with_suffix(".tmp")
-                make_file(tmp, size_kb)
-                tmp.replace(p)
-                action = "rewrite"
-            else:
-                newp = p.with_name(p.stem + f"_mod{int(time.time()*1000)}" + p.suffix)
-                p.replace(newp)
-                # sometimes rename back
-                if random.random() < 0.6:
-                    newp.replace(p)
-                action = "rename"
-            ops += 1
-            if ops % 50 == 0:
-                print(f"[T{thread_id}] ops={ops} free={human(free)} last_action={action}")
-        except Exception as e:
-            print(f"[T{thread_id}] write error {e}")
-            stop_event.set()
-            return
-
-        time.sleep(interval)
-
-# --- Estimation ---
-def estimate_bytes(files, writes_per_file, size_kb):
-    # تقدير تقريبي: files initial + writes_per_file total * size_kb
-    total_ops = files + writes_per_file
-    total_bytes = total_ops * size_kb * 1024
-    return total_bytes
-
-# --- Main ---
-def main():
-    parser = argparse.ArgumentParser(description="Aggressive safe I/O simulator (multi-threaded)")
-    parser.add_argument("--target","-t", required=True, help="Target folder (must be inside isolated VM)")
-    parser.add_argument("--start-delay","-s", type=int, default=60, help="Seconds before start (default 60s)")
-    parser.add_argument("--files","-f", type=int, default=1000, help="Number of files to create per whole run (not per thread)")
-    parser.add_argument("--writes","-w", type=int, default=20000, help="Total number of write operations (approx)")
-    parser.add_argument("--size-kb","-z", type=int, default=16, help="Size per create/append in KB (default 16KB)")
-    parser.add_argument("--interval","-i", type=float, default=0.005, help="Sleep between ops per thread (sec). Smaller = more aggressive")
-    parser.add_argument("--concurrency","-c", type=int, default=8, help="Number of worker threads (default 8)")
-    parser.add_argument("--safety-min-free-mb","-m", type=int, default=200, help="Min free MB on disk to keep (stop if lower). Default 200MB")
-    parser.add_argument("--no-snapshot-check", action="store_true", help="Bypass snapshot reminder")
-    args = parser.parse_args()
-
-    tgt = Path(args.target).resolve()
-    if not tgt.exists():
-        print("Creating target folder:", tgt)
-        try:
-            tgt.mkdir(parents=True, exist_ok=True)
-        except Exception as e:
-            print("Cannot create target:", e); sys.exit(1)
-
-    if not args.no_snapshot_check:
-        print("!!! تأكد أنك أخذت snapshot للـ VM وأن الـ VM معزول (Host-only/Disconnected). !!!")
-        print("Start delay:", args.start_delay, "s")
-        print("Target:", tgt)
-        ans = input("هل أخذت snapshot وتأكدت من العزل؟ (y/N) ")
-        if ans.strip().lower() != "y":
-            print("Aborting. خذ snapshot ثم أعد المحاولة.")
-            sys.exit(1)
-
-    # estimate
-    est_bytes = estimate_bytes(args.files, args.writes, args.size_kb)
-    print(f"Estimated total write: {human(est_bytes)}")
-    free_before = free_space_bytes(str(tgt))
-    print(f"Free disk at target: {human(free_before)}")
-    if est_bytes > free_before * 0.9:
-        print("Warning: estimated writes are close to or exceed available free space. Aborting.")
-        sys.exit(1)
-
-    # compute per-thread distribution
-    writes_per_thread = max(1, args.writes // args.concurrency)
-    writes_per_file = max(1, args.writes // max(1, args.files))
-    print(f"Threads: {args.concurrency} | files: {args.files} | writes_total: {args.writes} | size_kb: {args.size_kb}")
-    print("Sleeping until start-delay...")
-    time.sleep(args.start_delay)
-
-    params = {
-        'target': tgt,
-        'files': args.files,
-        'writes_per_file': writes_per_file,
-        'size_kb': args.size_kb,
-        'interval': args.interval,
-        'concurrency': args.concurrency,
-        'mode': 'disk',
-        'safety_min_free': args.safety_min_free_mb * 1024 * 1024
+def make_trace(i, file_idx, params):
+    # عملية؛ نتحكم في احتمال الكتابة والقراءة
+    write_prob = params.get('write_prob', 0.95)
+    op = 'write' if random.random() < write_prob else 'read'
+    offset = generate_offset_pattern(params.get('offset_mode','small_wss'), file_idx, i, params)
+    size = random.choice(params.get('sizes',[4096,8192,16384]))
+    # insert war (write-after-read): if enable, sometimes send a read then immediate write at same offset
+    return {
+        "timestamp": time.time(),
+        "operation_type": op,
+        "file_path": f"C:\\ransom_test\\file_{file_idx}.bin",
+        "offset": int(offset),
+        "size": int(size),
+        "process_id": int(params.get('pid',4242)),
+        "process_name": params.get('process_name',"ransom_sim.exe")
     }
 
-    stop_event = threading.Event()
-    threads = []
-    try:
-        for tid in range(args.concurrency):
-            t = threading.Thread(target=worker_thread, args=(tid, params, stop_event), daemon=True)
-            t.start()
-            threads.append(t)
-
-        print("Workers started. Press Ctrl+C to stop manually.")
-        while any(t.is_alive() for t in threads):
-            time.sleep(1)
-    except KeyboardInterrupt:
-        print("KeyboardInterrupt -> stopping...")
-        stop_event.set()
-    finally:
-        stop_event.set()
-        for t in threads:
-            t.join(timeout=2)
-        print("All workers stopped. Done.")
+def run(api_url, params):
+    total = params.get('total_traces', 20000)
+    files = params.get('files', 200)
+    interval = params.get('interval', 0.01)
+    start_delay = params.get('start_delay', 10)
+    burst_size = params.get('burst_size', 50)  # produce bursts
+    print(f"[SIM] waiting {start_delay}s before start")
+    time.sleep(start_delay)
+    print("[SIM] start sending traces...")
+    i = 0
+    while i < total:
+        # create bursts to increase burstiness
+        for b in range(burst_size):
+            file_idx = i % files
+            trace = make_trace(i, file_idx, params)
+            try:
+                r = requests.post(api_url, json=trace, timeout=5)
+                if r.status_code == 200:
+                    j = r.json()
+                    print(f"[{i}] PRED hybrid={j.get('hybrid_prediction'):.3f} (alert={j.get('hybrid_prediction')>params.get('threshold',0.24)})")
+                elif r.status_code == 202:
+                    print(f"[{i}] Buffered (202)")
+                else:
+                    print(f"[{i}] HTTP {r.status_code}")
+            except Exception as e:
+                print(f"[{i}] Request err:", e)
+            i += 1
+            if i >= total: break
+        # short pause between bursts (very small to keep burstiness high)
+        time.sleep(interval)
 
 if __name__ == "__main__":
-    main()
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--api", default="http://localhost:8000/predict")
+    parser.add_argument("--total", type=int, default=20000)
+    parser.add_argument("--files", type=int, default=200)
+    parser.add_argument("--interval", type=float, default=0.01)
+    parser.add_argument("--start-delay", type=int, default=10)
+    parser.add_argument("--burst-size", type=int, default=50)
+    parser.add_argument("--write-prob", type=float, default=0.98)
+    parser.add_argument("--wss", type=int, default=6)
+    parser.add_argument("--offset-mode", default="small_wss", choices=["small_wss","repeating_blocks","sequential"])
+    parser.add_argument("--sizes", default="4096,8192,16384")
+    parser.add_argument("--pid", type=int, default=4242)
+    parser.add_argument("--process-name", default="ransom_sim.exe")
+    args = parser.parse_args()
+
+    sizes = [int(x) for x in args.sizes.split(",")]
+    params = {
+        "write_prob": args.write_prob,
+        "wss": args.wss,
+        "offset_mode": args.offset_mode,
+        "sizes": sizes,
+        "files": args.files,
+        "total_traces": args.total,
+        "interval": args.interval,
+        "start_delay": args.start_delay,
+        "burst_size": args.burst_size,
+        "pid": args.pid,
+        "process_name": args.process_name,
+        "threshold": 0.24
+    }
+    run(args.api, params)
